@@ -144,3 +144,59 @@ export const deleteEvent = mutation({
     return { success: true };
   },
 });
+
+// Get featured events (top by registration count)
+export const getFeaturedEvents = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const events = await ctx.db.query("events").collect();
+    events.sort((a, b) => (b.registrationCount || 0) - (a.registrationCount || 0));
+    return events.slice(0, args.limit || 3);
+  },
+});
+
+// Get events by location (city, optional state)
+export const getEventsByLocation = query({
+  args: {
+    city: v.string(),
+    state: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // Query events ordered by start date, then filter by city/state
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_start_date", (q) => q)
+      .order("desc")
+      .collect();
+
+    const filtered = events.filter((e) => {
+      if (e.city !== args.city) return false;
+      if (args.state && e.state !== args.state) return false;
+      return true;
+    });
+    return filtered.slice(0, args.limit || 10);
+  },
+});
+
+// Get popular events (top by registration count across country)
+export const getPopularEvents = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const events = await ctx.db.query("events").collect();
+    events.sort((a, b) => (b.registrationCount || 0) - (a.registrationCount || 0));
+    return events.slice(0, args.limit || 6);
+  },
+});
+
+// Get category counts (map of category id -> count)
+export const getCategoryCounts = query({
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    const counts = {};
+    for (const e of events) {
+      counts[e.category] = (counts[e.category] || 0) + 1;
+    }
+    return counts;
+  },
+});
