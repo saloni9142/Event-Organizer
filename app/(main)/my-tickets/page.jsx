@@ -8,7 +8,7 @@ import { Calendar, MapPin, Loader2, Ticket } from "lucide-react";
 import { useConvexQuery, useConvexMutation } from "@/hooks/use-convex-query";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-// import QRCode from "react-qr-code";
+import QRCode from "react-qr-code";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

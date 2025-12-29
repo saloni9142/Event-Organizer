@@ -30,7 +30,7 @@ export const createEvent = mutation({
       const user = await ctx.runQuery(internal.users.getCurrentUser);
 
       // SERVER-SIDE CHECK: Verify event limit for Free users
-      if (!args.hasPro && user.freeEventsCreated >= 1) {
+      if (!hasPro && user.freeEventsCreated >= 1) {
         throw new Error(
           "Free event limit reached. Please upgrade to Pro to create more events."
         );
