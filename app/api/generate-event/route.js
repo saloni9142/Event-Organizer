@@ -40,7 +40,57 @@ Rules:
 - suggestedTicketType should be either "free" or "paid"
 `;
 
-    const result = await model.generateContent(systemPrompt);
+    // Helper: parse retry delay (ms) from Google RPC RetryInfo if present
+    function parseRetryDelayMsFromError(err) {
+      try {
+        if (err?.errorDetails && Array.isArray(err.errorDetails)) {
+          const retryInfo = err.errorDetails.find(
+            (d) => d['@type'] && d['@type'].includes('RetryInfo')
+          );
+          if (retryInfo && retryInfo.retryDelay) {
+            const match = String(retryInfo.retryDelay).match(/([0-9]+(\.[0-9]+)?)s/);
+            if (match) return Math.ceil(parseFloat(match[1]) * 1000);
+          }
+        }
+      } catch (e) {
+        // ignore parse errors
+      }
+      return null;
+    }
+
+    async function generateWithRetry(model, prompt, maxAttempts = 4) {
+      let attempt = 0;
+      while (attempt < maxAttempts) {
+        try {
+          const result = await model.generateContent(prompt);
+          return result;
+        } catch (err) {
+          attempt++;
+          const isRateLimit = err?.status === 429 || (err?.message && /quota|too many requests/i.test(err.message));
+          const retryMs = parseRetryDelayMsFromError(err);
+          if (!isRateLimit || attempt >= maxAttempts) {
+            throw err;
+          }
+          const backoffMs = retryMs ?? Math.min(30000, (2 ** attempt) * 1000 + Math.floor(Math.random() * 1000));
+          console.warn(`Rate limited, retrying in ${backoffMs}ms (attempt ${attempt} of ${maxAttempts})`);
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+      throw new Error('Exceeded retry attempts');
+    }
+
+    let result;
+    try {
+      result = await generateWithRetry(model, systemPrompt);
+    } catch (err) {
+      const retryMs = parseRetryDelayMsFromError(err);
+      const retrySeconds = retryMs ? Math.ceil(retryMs / 1000) : 60;
+      console.error('Error generating event (rate limited):', err);
+      return NextResponse.json(
+        { error: `Rate limit exceeded. Please retry after ${retrySeconds} seconds.` },
+        { status: 429, headers: { 'Retry-After': String(retrySeconds) } }
+      );
+    }
 
     const response = result.response;
     const text = response.text();
@@ -57,7 +107,13 @@ Rules:
 
     console.log(cleanedText);
 
-    const eventData = JSON.parse(cleanedText);
+    let eventData;
+    try {
+      eventData = JSON.parse(cleanedText);
+    } catch (parseErr) {
+      console.error('Failed to parse model response as JSON:', parseErr, 'response:', cleanedText);
+      return NextResponse.json({ error: 'Failed to parse model response' }, { status: 502 });
+    }
 
     return NextResponse.json(eventData);
   } catch (error) {

@@ -1,47 +1,87 @@
 /* eslint-disable react-hooks/purity */
 "use client";
 
+import { useParams, useRouter } from "next/navigation";
+import { notFound } from "next/navigation";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { format } from "date-fns";
-import { Calendar, MapPin, Loader2, Ticket } from "lucide-react";
-import { useConvexQuery, useConvexMutation } from "@/hooks/use-convex-query";
+import {
+  Calendar,
+  MapPin,
+  Users,
+  Clock,
+  Share2,
+  Ticket,
+  ExternalLink,
+  Loader2,
+  CheckCircle,
+} from "lucide-react";
+import { useConvexQuery } from "@/hooks/use-convex-query";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-// import QRCode from "react-qr-code";
+import { useUser } from "@clerk/nextjs";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import Link from "next/link";
-import EventCard from "@/components/event-card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getCategoryIcon, getCategoryLabel } from "@/lib/data";
+import RegisterModal from "./_components/register-modal";
 
-export default function MyTicketsPage() {
+// Utility function to darken a color
+function darkenColor(color, amount) {
+  const colorWithoutHash = color.replace("#", "");
+  const num = parseInt(colorWithoutHash, 16);
+  const r = Math.max(0, (num >> 16) - amount * 255);
+  const g = Math.max(0, ((num >> 8) & 0x00ff) - amount * 255);
+  const b = Math.max(0, (num & 0x0000ff) - amount * 255);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
+export default function EventDetailPage() {
+  const params = useParams();
   const router = useRouter();
-  const [selectedTicket, setSelectedTicket] = useState(null);
+  const { user } = useUser();
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
 
-  const { data: registrations, isLoading } = useConvexQuery(
-    api.registrations.getMyRegistrations
+  // Fetch event details
+  const { data: event, isLoading } = useConvexQuery(api.events.getEventBySlug, {
+    slug: params.slug,
+  });
+
+  // Check if user is already registered
+  const { data: registration } = useConvexQuery(
+    api.registration.checkRegistration,
+    event?._id ? { eventId: event._id } : "skip"
   );
 
-  const { mutate: cancelRegistration, isLoading: isCancelling } =
-    useConvexMutation(api.registrations.cancelRegistration);
-
-  const handleCancelRegistration = async (registrationId) => {
-    if (!window.confirm("Are you sure you want to cancel this registration?"))
-      return;
-
-    try {
-      await cancelRegistration({ registrationId });
-      toast.success("Registration cancelled successfully.");
-    } catch (error) {
-      toast.error(error.message || "Failed to cancel registration");
+  const handleShare = async () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: event.title,
+          text: event.description.slice(0, 100) + "...",
+          url: url,
+        });
+      } catch (error) {
+        // User cancelled or error occurred
+      }
+    } else {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(url);
+      toast.success("Link copied to clipboard!");
     }
+  };
+
+  const handleRegister = () => {
+    if (!user) {
+      toast.error("Please sign in to register");
+      return;
+    }
+    setShowRegisterModal(true);
   };
 
   if (isLoading) {
@@ -52,139 +92,269 @@ export default function MyTicketsPage() {
     );
   }
 
-  const now = Date.now();
+  if (!event) {
+    notFound();
+  }
 
-  const upcomingTickets = registrations?.filter(
-    (reg) =>
-      reg.event && reg.event.startDate >= now && reg.status === "confirmed"
-  );
-  const pastTickets = registrations?.filter(
-    (reg) =>
-      reg.event && (reg.event.startDate < now || reg.status === "cancelled")
-  );
+  const isEventFull = event.registrationCount >= event.capacity;
+  const isEventPast = event.endDate < Date.now();
+  const isOrganizer = user?.id === event.organizerId;
 
   return (
-    <div className="min-h-screen pb-20 px-4">
-      <div className="max-w-7xl mx-auto">
+    <div
+      style={{
+        backgroundColor: event.themeColor || "#1e3a8a",
+      }}
+      className="min-h-screen py-8 -mt-6 md:-mt-16 lg:-mx-5"
+    >
+      <div className="max-w-7xl mx-auto px-8">
+        {/* Event Title & Info */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">My Tickets</h1>
-          <p className="text-muted-foreground">
-            View and manage your event registrations
-          </p>
+          <Badge variant="secondary" className="mb-3">
+            {getCategoryIcon(event.category)} {getCategoryLabel(event.category)}
+          </Badge>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">{event.title}</h1>
+          <div className="flex flex-wrap items-center gap-4 text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              <span>{format(event.startDate, "EEEE, MMMM dd, yyyy")}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5" />
+              <span>
+                {format(event.startDate, "h:mm a")} -{" "}
+                {format(event.endDate, "h:mm a")}
+              </span>
+            </div>
+          </div>
         </div>
 
-        {/* Upcoming Tickets */}
-        {upcomingTickets?.length > 0 && (
-          <div className="mb-12">
-            <h2 className="text-2xl font-bold mb-4">Upcoming Events</h2>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {upcomingTickets.map((registration) => (
-                <EventCard
-                  key={registration._id}
-                  event={registration.event}
-                  action="ticket"
-                  onClick={() => setSelectedTicket(registration)}
-                  onDelete={() => handleCancelRegistration(registration._id)}
-                />
-              ))}
-            </div>
+        {/* Hero Image */}
+        {event.coverImage && (
+          <div className="relative h-[400px] rounded-2xl overflow-hidden mb-6">
+            <Image
+              src={event.coverImage}
+              alt={event.title}
+              fill
+              className="object-cover"
+              priority
+            />
           </div>
         )}
 
-        {/* Past Tickets */}
-        {pastTickets?.length > 0 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-4">Past Events</h2>
+        <div className="grid lg:grid-cols-[1fr_380px] gap-8">
+          {/* Main Content */}
+          <div className="space-y-8">
+            {/* Description */}
+            <Card
+              className={"pt-0"}
+              style={{
+                backgroundColor: event.themeColor
+                  ? darkenColor(event.themeColor, 0.04)
+                  : "#1e3a8a",
+              }}
+            >
+              <CardContent className="pt-6">
+                <h2 className="text-2xl font-bold mb-4">About This Event</h2>
+                <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                  {event.description}
+                </p>
+              </CardContent>
+            </Card>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {pastTickets.map((registration) => (
-                <EventCard
-                  key={registration._id}
-                  event={registration.event}
-                  action={null}
-                  className="opacity-60"
-                />
-              ))}
-            </div>
+            {/* Location Details */}
+            <Card
+              className={"pt-0"}
+              style={{
+                backgroundColor: event.themeColor
+                  ? darkenColor(event.themeColor, 0.04)
+                  : "#1e3a8a",
+              }}
+            >
+              <CardContent className="pt-6">
+                <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+                  <MapPin className="w-6 h-6 text-purple-500" />
+                  Location
+                </h2>
+
+                <div className="space-y-3">
+                  <p className="font-medium">
+                    {event.city}, {event.state || event.country}
+                  </p>
+                  {event.address && (
+                    <p className="text-sm text-muted-foreground">
+                      {event.address}
+                    </p>
+                  )}
+                  {event.venue && (
+                    <Button variant="outline" asChild className="gap-2">
+                      <a
+                        href={event.venue}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View on Map
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Organizer Info */}
+            <Card
+              className={"pt-0"}
+              style={{
+                backgroundColor: event.themeColor
+                  ? darkenColor(event.themeColor, 0.04)
+                  : "#1e3a8a",
+              }}
+            >
+              <CardContent className="pt-6">
+                <h2 className="text-2xl font-bold mb-4">Organizer</h2>
+                <div className="flex items-center gap-3">
+                  <Avatar className="w-12 h-12">
+                    <AvatarImage src="" />
+                    <AvatarFallback>
+                      {event.organizerName.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="font-semibold">{event.organizerName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Event Organizer
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        )}
 
-        {/* Empty State */}
-        {!upcomingTickets?.length && !pastTickets?.length && (
-          <Card className="p-12 text-center">
-            <div className="max-w-md mx-auto space-y-4">
-              <div className="text-6xl mb-4">🎟️</div>
-              <h2 className="text-2xl font-bold">No tickets yet</h2>
-              <p className="text-muted-foreground">
-                Register for events to see your tickets here
-              </p>
-              <Button asChild className="gap-2">
-                <Link href="/explore">
-                  <Ticket className="w-4 h-4" /> Browse Events
-                </Link>
-              </Button>
-            </div>
-          </Card>
-        )}
+          {/* Sidebar - Registration Card */}
+          <div className="lg:sticky lg:top-24 h-fit">
+            <Card
+              className={`overflow-hidden py-0`}
+              style={{
+                backgroundColor: event.themeColor
+                  ? darkenColor(event.themeColor, 0.04)
+                  : "#1e3a8a",
+              }}
+            >
+              <CardContent className="p-6 space-y-4">
+                {/* Price */}
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Price</p>
+                  <p className="text-3xl font-bold">
+                    {event.ticketType === "free"
+                      ? "Free"
+                      : `₹${event.ticketPrice}`}
+                  </p>
+                  {event.ticketType === "paid" && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Pay at event offline
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Stats */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Users className="w-4 h-4" />
+                      <span className="text-sm">Attendees</span>
+                    </div>
+                    <p className="font-semibold">
+                      {event.registrationCount} / {event.capacity}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-sm">Date</span>
+                    </div>
+                    <p className="font-semibold text-sm">
+                      {format(event.startDate, "MMM dd")}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="w-4 h-4" />
+                      <span className="text-sm">Time</span>
+                    </div>
+                    <p className="font-semibold text-sm">
+                      {format(event.startDate, "h:mm a")}
+                    </p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Registration Button */}
+                {registration ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-lg">
+                      <CheckCircle className="w-5 h-5" />
+                      <span className="font-medium">
+                        You&apos;re registered!
+                      </span>
+                    </div>
+                    <Button
+                      className="w-full gap-2"
+                      onClick={() => router.push("/my-tickets")}
+                    >
+                      <Ticket className="w-4 h-4" />
+                      View Ticket
+                    </Button>
+                  </div>
+                ) : isEventPast ? (
+                  <Button className="w-full" disabled>
+                    Event Ended
+                  </Button>
+                ) : isEventFull ? (
+                  <Button className="w-full" disabled>
+                    Event Full
+                  </Button>
+                ) : isOrganizer ? (
+                  <Button
+                    className="w-full"
+                    onClick={() => router.push(`/events/${event.slug}/manage`)}
+                  >
+                    Manage Event
+                  </Button>
+                ) : (
+                  <Button className="w-full gap-2" onClick={handleRegister}>
+                    <Ticket className="w-4 h-4" />
+                    Register for Event
+                  </Button>
+                )}
+
+                {/* Share Button */}
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handleShare}
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share Event
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
 
-      {/* QR Code Modal */}
-      {selectedTicket && (
-        <Dialog
-          open={!!selectedTicket}
-          onOpenChange={() => setSelectedTicket(null)}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Your Ticket</DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="text-center">
-                <p className="font-semibold mb-1">
-                  {selectedTicket.attendeeName}
-                </p>
-                <p className="text-sm text-muted-foreground mb-4">
-                  {selectedTicket.event.title}
-                </p>
-              </div>
-
-              <div className="flex justify-center p-6 bg-white rounded-lg">
-                <QRCode value={selectedTicket.qrCode} size={200} level="H" />
-              </div>
-
-              <div className="text-center">
-                <p className="text-xs text-muted-foreground mb-1">Ticket ID</p>
-                <p className="font-mono text-sm">{selectedTicket.qrCode}</p>
-              </div>
-
-              <div className="bg-muted p-4 rounded-lg space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  <span>
-                    {format(selectedTicket.event.startDate, "PPP, h:mm a")}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  <span>
-                    {selectedTicket.event.locationType === "online"
-                      ? "Online Event"
-                      : `${selectedTicket.event.city}, ${
-                          selectedTicket.event.state ||
-                          selectedTicket.event.country
-                        }`}
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground text-center">
-                Show this QR code at the event entrance for check-in
-              </p>
-            </div>
-          </DialogContent>
-        </Dialog>
+      Register Modal
+      {showRegisterModal && (
+        <RegisterModal
+          event={event}
+          isOpen={showRegisterModal}
+          onClose={() => setShowRegisterModal(false)}
+        />
       )}
     </div>
   );

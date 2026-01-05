@@ -26,11 +26,11 @@ export default function MyTicketsPage() {
   const [selectedTicket, setSelectedTicket] = useState(null);
 
   const { data: registrations, isLoading } = useConvexQuery(
-    api.registrations.getMyRegistrations
+    api.registration.getMyRegistrations
   );
 
   const { mutate: cancelRegistration, isLoading: isCancelling } =
-    useConvexMutation(api.registrations.cancelRegistration);
+    useConvexMutation(api.registration.cancelRegistration);
 
   const handleCancelRegistration = async (registrationId) => {
     if (!window.confirm("Are you sure you want to cancel this registration?"))
