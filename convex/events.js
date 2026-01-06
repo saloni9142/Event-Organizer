@@ -28,6 +28,7 @@ export const createEvent = mutation({
   handler: async (ctx, args) => {
     try {
       const user = await ctx.runQuery(internal.users.getCurrentUser);
+      const hasPro = Boolean(args.hasPro);
 
       // SERVER-SIDE CHECK: Verify event limit for Free users
       if (!hasPro && user.freeEventsCreated >= 1) {
@@ -53,22 +54,43 @@ export const createEvent = mutation({
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)/g, "");
 
-      // Create event
-      const eventId = await ctx.db.insert("events", {
-        ...args,
-        themeColor, // Use validated color
+      // Build a sanitized event payload (exclude client-only fields like hasPro)
+      const eventPayload = {
+        title: args.title,
+        description: args.description,
+        category: args.category,
+        tags: args.tags,
+        startDate: args.startDate,
+        endDate: args.endDate,
+        timezone: args.timezone,
+        locationType: args.locationType,
+        venue: args.venue || undefined,
+        address: args.address || undefined,
+        city: args.city,
+        state: args.state || undefined,
+        country: args.country || "India",
+        capacity: args.capacity,
+        ticketType: args.ticketType,
+        ticketPrice: args.ticketPrice || undefined,
+        coverImage: args.coverImage || undefined,
+        themeColor,
         slug: `${slug}-${Date.now()}`,
         organizerId: user._id,
         organizerName: user.name,
         registrationCount: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-      });
+      };
 
-      // Update user's free event count
-      await ctx.db.patch(user._id, {
-        freeEventsCreated: user.freeEventsCreated + 1,
-      });
+      // Create event
+      const eventId = await ctx.db.insert("events", eventPayload);
+
+      // Update user's free event count only if the event is free
+      if (eventPayload.ticketType === "free") {
+        await ctx.db.patch(user._id, {
+          freeEventsCreated: user.freeEventsCreated + 1,
+        });
+      }
 
       return eventId;
     } catch (error) {
