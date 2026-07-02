@@ -122,13 +122,6 @@ http://localhost:3000
 
 ---
 
-## 👨‍💻 Author
-
-Saloni  
-GitHub: https://github.com/saloni9142
-
----
-
 ## ⭐ Note
 
 This project is built for learning modern full-stack development and real-world authentication + database integration.
