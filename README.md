@@ -42,7 +42,7 @@ It was built as part of my learning journey in full-stack development.
 Frontend:
 - Next.js
 - React.js
-- Tailwind CSS (if used)
+- Tailwind CSS 
 
 Backend / Database:
 - Supabase (PostgreSQL)
